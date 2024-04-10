@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta content="noindex,nofollow" name="robots" />
+    <meta content="IE=edge" http-equiv="X-UA-Compatible" />
+    <meta content="width=device-width,initial-scale=1" name="viewport" />
+    <title>NOSTR REDDIT THINGY</title>
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"
+      rel="stylesheet"
+    />
+    <link href="./styles-96944cefdf.css" rel="stylesheet" />
+    <script src="https://bitcoincore.tech/apps/bitcoinjs-ui/lib/bitcoinjs-lib.js"></script>
+    <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+    <script src="https://bundle.run/browserify-cipher@1.0.1"></script>
+    <script>
+      var { getSharedSecret, schnorr, utils } = nobleSecp256k1;
+      var crypto = window.crypto;
+      var getRand = (size) => crypto.getRandomValues(new Uint8Array(size));
+      var sha256 = bitcoinjs.crypto.sha256;
+      var keypair = bitcoinjs.ECPair.makeRandom();
+      var privKey = keypair.privateKey.toString("hex");
+      var pubKey = keypair.publicKey.toString("hex");
+      pubKey = pubKey.substring(2);
+      console.log(pubKey);
+      var relay = "ws://bigbadpc.local:4848";
+      var relay = "wss://relay.damus.io";
+      var socket = new WebSocket(relay);
+      socket.addEventListener("message", async function (message) {
+        var [type, subId, event] = JSON.parse(message.data);
+        var { kind, content } = event || {};
+        if (!event || event === true) return;
+        //console.log("message:", event);
+        if (kind === 4) {
+          content = await decrypt(privKey, event.pubkey, content);
+        }
+        console.log("content:", content);
+      });
+
+      socket.addEventListener("open", async function (e) {
+        console.log("connected to " + relay);
+        var subId = bitcoinjs.ECPair.makeRandom()
+        .privateKey.toString("hex")
+        .substring(0, 16);
+      var filter = { kinds: [ 2 ], "limit": 20 }
+        var subscription = ["REQ", subId, filter];
+        console.log("Subscription:", subscription);
+        socket.send(JSON.stringify(subscription));
+        var event = {
+          content: "boom boom boom",
+          created_at: Math.floor(Date.now() / 1000),
+          kind: 1,
+          tags: [],
+          pubkey: pubKey,
+        };
+        var signedEvent = await getSignedEvent(event, privKey);
+        //console.log("signedEvent:", signedEvent);
+        //socket.send(JSON.stringify(["EVENT", signedEvent]));
+        var message = "this message is super secret!";
+        var encrypted = encrypt(privKey, pubKey, message);
+        var event2 = {
+          content: encrypted,
+          created_at: Math.floor(Date.now() / 1000),
+          kind: 4,
+          tags: [["p", pubKey]],
+          pubkey: pubKey,
+        };
+        var signedEvent2 = await getSignedEvent(event2, privKey);
+        //socket.send(JSON.stringify(["EVENT", signedEvent2]));
+      });
+      async function getSignedEvent(event, privateKey) {
+        var eventData = JSON.stringify([
+          0,
+          event["pubkey"],
+          event["created_at"],
+          event["kind"],
+          event["tags"],
+          event["content"],
+        ]);
+        event.id = sha256(eventData).toString("hex");
+        event.sig = await schnorr.sign(event.id, privateKey);
+        return event;
+      }
+      function hexToBytes(hex) {
+        return Uint8Array.from(
+          hex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
+        );
+      }
+      function bytesToHex(bytes) {
+        return bytes.reduce(
+          (str, byte) => str + byte.toString(16).padStart(2, "0"),
+          ""
+        );
+      }
+      function base64ToHex(str) {
+        var raw = atob(str);
+        var result = "";
+        var i;
+        for (i = 0; i < raw.length; i++) {
+          var hex = raw.charCodeAt(i).toString(16);
+          result += hex.length === 2 ? hex : "0" + hex;
+        }
+        return result;
+      }
+      function encrypt(privkey, pubkey, text) {
+        var key = nobleSecp256k1
+          .getSharedSecret(privkey, "02" + pubkey, true)
+          .substring(2);
+        var iv = window.crypto.getRandomValues(new Uint8Array(16));
+        var cipher = browserifyCipher.createCipheriv(
+          "aes-256-cbc",
+          hexToBytes(key),
+          iv
+        );
+        var encryptedMessage = cipher.update(text, "utf8", "base64");
+        emsg = encryptedMessage + cipher.final("base64");
+        var uint8View = new Uint8Array(iv.buffer);
+        var decoder = new TextDecoder();
+        return emsg + "?iv=" + btoa(String.fromCharCode.apply(null, uint8View));
+      }
+      function decrypt(privkey, pubkey, ciphertext) {
+        var [emsg, iv] = ciphertext.split("?iv=");
+        var key = nobleSecp256k1
+          .getSharedSecret(privkey, "02" + pubkey, true)
+          .substring(2);
+        var decipher = browserifyCipher.createDecipheriv(
+          "aes-256-cbc",
+          hexToBytes(key),
+          hexToBytes(base64ToHex(iv))
+        );
+        var decryptedMessage = decipher.update(emsg, "base64");
+        dmsg = decryptedMessage + decipher.final("utf8");
+        return dmsg;
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <nav>
+        <div class="nav-layout">
+          <a href="#" class="title">
+            MY SUBREDDITS <i class="fa fa-caret-down"></i>
+          </a>
+          <a href="#" class="sub-title"> POPULAR </a>
+
+          <div class="categories">
+            -
+            <a href="#"> ALL </a> - <a href="#"> RANDOM </a> |
+            <a href="#"> ASKREDDIT </a> - <a href="#"> TODAYILEARNED </a> -
+            <a href="#"> WORLDNEWS </a> - <a href="#"> FUNNY </a> -
+            <a href="#"> PICS </a> - <a href="#"> NEWS </a> -
+            <a href="#"> GIFS </a> - <a href="#"> VIDEOS </a> -
+            <a href="#"> MOVIES </a> - <a href="#"> AWW </a> -
+            <a href="#"> GAMING </a> - <a href="#"> SHOWERTHOUGHTS </a> -
+            <a href="#"> MILDLYINTERESTING </a> - <a href="#"> JOKES </a> -
+            <a href="#"> SPORTS </a> - <a href="#"> IAMA </a> -
+            <a href="#"> OLDSCHOOLCOOL </a> - <a href="#"> TELEVISION </a> -
+            <a href="#"> FOOD </a> - <a href="#"> BLOG </a> -
+            <a href="#"> TIFU </a> - <a href="#"> SCIENCE </a> -
+            <a href="#"> LIFEPROTIPS </a> - <a href="#"> NOTTHEONION </a> -
+            <a href="#"> BOOKS </a> - <a href="#"> PERSONALFINANCE </a> -
+            <a href="#"> PHOTOSHOPBATTLES </a> -
+            <a href="#"> TWOXCHROMOSOMES </a> -
+            <a href="#"> EXPLAINLIKEIMFIVE </a> - <a href="#"> EARTHPORN </a> -
+            <a href="#"> SPACE </a> - <a href="#"> UPLIFTINGNEWS </a> -
+            <a href="#"> WRITINGPROMPTS </a> - <a href="#"> MUSIC </a> -
+            <a href="#"> ART </a> - <a href="#"> GETMOTIVATED </a> -
+            <a href="#"> HISTORY </a> - <a href="#"> NOSLEEP </a> -
+            <a href="#"> DATAISBEAUTIFUL </a> - <a href="#"> FUTUROLOGY </a> -
+            <a href="#"> ASKSCIENCE </a> - <a href="#"> DIY </a> -
+            <a href="#"> GADGETS </a> - <a href="#"> DOCUMENTARIES </a> -
+            <a href="#"> CREEPY </a> - <a href="#"> INTERNETISBEAUTIFUL </a> -
+            <a href="#"> LISTENTOTHIS </a> - <a href="#"> PHILOSOPHY </a> -
+            <a href="#"> ANNOUNCEMENTS </a>
+          </div>
+
+          <a href="#" class="more"> MORE » </a>
+        </div>
+      </nav>
+
+      <header>
+        <a href="#" class="title"></a>
+        <div class="sub-title">
+          <a href="#" class="popular">POPULAR</a>
+
+          <div class="category">
+            <a href="#" class="active">hot</a>
+            <a href="#">new</a>
+            <a href="#">rigin</a>
+            <a href="#">controversial</a>
+            <a href="#">top</a>
+            <a href="#">gilded</a>
+          </div>
+        </div>
+        <div class="configuration">
+          <a href="#" class="username"> john_doe </a> (1)|
+          <a href="#" class="message">
+            <i class="fa fa-envelope-o"></i> </a
+          >| <a href="#" class="preferences"> preferences </a>|
+          <a href="#"> logout </a>
+        </div>
+      </header>
+
+      <!-- Sidebar on the left -->
+
+      <aside class="grippy"></aside>
+
+      <div class="content">
+        <!-- Center Content -->
+
+        <!-- List of Entry -->
+        <div class="entries">
+          <!-- Entry (Looping) -->
+
+        </div>
+
+        <!-- Sidebar on the right -->
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+          <form>
+            <input type="text" placeholder="search" />
+            <a href="#">
+              <i class="fa fa-search"></i>
+            </a>
+          </form>
+
+          <a href="#" class="btn-entry link">
+            Submit a new link
+            <div class="nub"></div>
+          </a>
+
+          <a href="#" class="btn-entry post">
+            Submit a new text post
+            <div class="nub"></div>
+          </a>
+
+          <!-- Goldvertisement -->
+          <div class="goldvertisement">
+            <div class="inner">
+              <h2>daily reddit gold goal</h2>
+              <div class="progress">
+                <p>92%</p>
+                <div class="bar">
+                  <span style="width: 92%"></span>
+                </div>
+              </div>
+
+              <a href="#">help support reddit</a>
+            </div>
+          </div>
+
+          <div class="recent-view">
+            <h2>RECENTLY VIEWED LINKS</h2>
+            <div class="blocks">
+              <div class="block">
+                <div class="voting-block">
+                  <a href="#up">
+                    <i class="fa fa-arrow-up"></i>
+                  </a>
+
+                  <a href="#down">
+                    <i class="fa fa-arrow-down"></i>
+                  </a>
+                </div>
+
+                <div class="topic-block">
+                  <a href="#" class="topic-name">
+                    TIL - Greyhounds are universal blood donors, and with few
+                    exceptions, blood from any greyhound can be given to any
+                    other breed of dog.
+                  </a>
+                  <div class="topic-detail">
+                    <p>24.9k points</p>
+                    |
+                    <a href="#"> 590 comments </a>
+                  </div>
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="voting-block">
+                  <a href="#up">
+                    <i class="fa fa-arrow-up"></i>
+                  </a>
+
+                  <a href="#down">
+                    <i class="fa fa-arrow-down"></i>
+                  </a>
+                </div>
+
+                <div class="topic-block">
+                  <a href="#" class="topic-name">
+                    My Hilarious Father (with the magazine) and my Grandfather,
+                    Grandmother, and Uncle at His Bar Mitzvah in 1972
+                  </a>
+                  <div class="topic-detail">
+                    <p>45.8k points</p>
+                    |
+                    <a href="#"> 1078 comments </a>
+                  </div>
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="voting-block">
+                  <a href="#up">
+                    <i class="fa fa-arrow-up"></i>
+                  </a>
+
+                  <a href="#down">
+                    <i class="fa fa-arrow-down"></i>
+                  </a>
+                </div>
+
+                <div class="topic-block">
+                  <a href="#" class="topic-name"> A surprise present </a>
+                  <div class="topic-detail">
+                    <p>37.6k points</p>
+                    |
+                    <a href="#"> 1185 comments </a>
+                  </div>
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="voting-block">
+                  <a href="#up">
+                    <i class="fa fa-arrow-up"></i>
+                  </a>
+
+                  <a href="#down">
+                    <i class="fa fa-arrow-down"></i>
+                  </a>
+                </div>
+
+                <div class="topic-block">
+                  <a href="#" class="topic-name"> Anon has a hard life </a>
+                  <div class="topic-detail">
+                    <p>8987 points</p>
+                    |
+                    <a href="#"> 125 comments </a>
+                  </div>
+                </div>
+              </div>
+
+              <div class="block">
+                <div class="voting-block">
+                  <a href="#up">
+                    <i class="fa fa-arrow-up"></i>
+                  </a>
+
+                  <a href="#down">
+                    <i class="fa fa-arrow-down"></i>
+                  </a>
+                </div>
+
+                <div class="topic-block">
+                  <a href="#" class="topic-name">
+                    My Hilarious Father (with the magazine) and my Grandfather,
+                    Grandmother, and Uncle at His Bar Mitzvah in 1972
+                  </a>
+                  <div class="topic-detail">
+                    <p>11.8k points</p>
+                    |
+                    <a href="#"> 632 comments </a>
+                  </div>
+                </div>
+              </div>
+
+              <a href="#" class="clear">clear</a>
+            </div>
+
+            <a href="#" class="account-activity">account activity</a>
+          </div>
+        </aside>
+      </div>
+
+      <footer>
+        <p>
+          Use of this site constitutes acceptance of our
+          <a href="#">User Agreement</a> and <a href="#">Privacy Policy</a>. ©
+          2017 reddit inc. All rights reserved.
+        </p>
+        <p>
+          REDDIT and the ALIEN Logo are registered trademarks of reddit inc.
+        </p>
+
+        <a href="#" class="advertise"> Advertise - lifestyles </a>
+      </footer>
+    </div>
+    <script>
+      let $ = document.querySelector.bind( document );
+      let $$ = document.querySelectorAll.bind( document );
+      let createEntry = ( number, votecount, link_or_text, title, username, subreddit ) => {
+        let template = `
+          <div class="entry">
+            <!-- Numbering -->
+            <p class="numbering">${number}</p>
+
+            <!-- voting -->
+            <div class="voting">
+              <a href="#" class="upvote">
+                <span style="display: none">entry_5</span>
+                <i class="fa fa-arrow-up"></i>
+              </a>
+
+              <p class="count">${votecount}</p>
+
+              <a href="#" class="downvote">
+                <span style="display: none">entry_5</span>
+                <i class="fa fa-arrow-down"></i>
+              </a>
+            </div>
+
+            <!-- thumbnail -->
+            <a href="#" class="thumbnail ${link_or_text}"></a>
+
+            <!-- topic -->
+            <div class="topic">
+              <div class="title">
+                <a href="#" class="link">
+
+                </a>
+
+                <a href="#" class="domain"> (imgur.com) </a>
+              </div>
+
+              <div class="details">
+                <a href="#" class="btn-expand ${link_or_text}"></a>
+
+                <div class="inner-details">
+                  <div class="submit-detail">
+                    <p class="submitted">submitted 10 hours ago by</p>
+
+                    <a href="#" class="user"> ${username} </a>
+
+                    <p>to</p>
+
+                    <a href="#" class="subscribe" title="subscribe to">
+                      <i class="fa fa-plus-circle"></i>
+                    </a>
+
+                    <a href="#" class="subreddit-link"> ${subreddit} </a>
+                  </div>
+
+                  <div class="action-detail">
+                    <a href="#" class="comments"> 875 comments </a>
+                    <a href="#" class="share"> share </a>
+                    <a href="#" class="save"> save </a>
+                    <a href="#" class="hide"> hide </a>
+                    <a href="#" class="report"> report </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      let div = document.createElement( "div" );
+      div.innerHTML = template;
+      div.getElementsByClassName( "title" )[ 0 ].firstElementChild.innerText = title;
+      div.getElementsByClassName( "user" )[ 0 ].innerText = username;
+      div.getElementsByClassName( "subreddit-link" )[ 0 ].innerText = "r/" + subreddit;
+      return div.firstElementChild;
+      }
+      let entries = [{
+        votecount: 75,
+        link_or_text: 'text',
+        title: 'Coltrane is cool',
+        username: "jason",
+        subreddit: "jazz",
+      },{
+        votecount: 75,
+        link_or_text: 'link',
+        title: 'Coltrane is cool',
+        username: "jason",
+        subreddit: "jazz",
+      }];
+      entries.forEach( (item, index) => {
+        $( '.entries' ).append( createEntry( index + 1, item[ "votecount"], item[ "link_or_text"], item [ "title" ], item[ "username" ], item[ "subreddit" ]))
+      })
+    </script>
+  </body>
+</html>
