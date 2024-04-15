@@ -1,0 +1,5 @@
+.post_title, .comments_counter {
+    font-size: 200%;
+    font-weight: bold;
+    margin: 1rem 0;
+}

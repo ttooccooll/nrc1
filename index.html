@@ -17,6 +17,7 @@
     <script src="https://bundle.run/buffer@6.0.3"></script>
     <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
     <script src="https://bundle.run/browserify-cipher@1.0.1"></script>
+    <link rel='stylesheet' type='text/css' href='./style.css'>
     <script>
       var { getSharedSecret, schnorr, utils } = nobleSecp256k1;
       var crypto = window.crypto;
@@ -51,7 +52,7 @@
           title: extractSubjectFromEvent(event),
           username: event.pubkey.substring(0, 20) + "...",
           subreddit: extractSubredditFromEvent(event),
-          how_long_ago: convertHMS(now - event.created_at) + "ago",
+          how_long_ago: convertHMS(now - event.created_at) + " ago",
           comments_count: "0",
         }
         $(".entries").append(
@@ -68,24 +69,47 @@
           )
         );
         if (kind === 1) {
-          var div = document.createElement("div");
-          div.innerHTML = `
-            <div class="metadata"></div>
-            <div class="post_title"></div>
-            <div class="post_content"></div>
-          `;
-          div.getElementsByClassName("metadata")[0].innerText = `Posted by ${event.pubkey.substring( 0, 20 ) + "..."} ${convertHMS(now - event.created_at)}`;
-          div.getElementsByClassName("post_title")[0].innerText = extractSubredditFromEvent(event);
-          div.getElementsByClassName("post_content")[0].innerText = event.content;
-          $(".entries").append(div);
-        }
-      });
+          if ( $_GET[ "post" ] ) {
+            var now = Math.floor( Date.now() / 1000 );
+            var div = document.createElement("div");
+            div.innerHTML = `
+              <div class="metadata"></div>
+              <div class="post_title"></div>
+              <div class="post_content"></div>
+              <div class="comments_counter"><span class="how_many_comments">0</span> comments</div>
+            `;
+            div.getElementsByClassName("metadata")[0].innerText = `Posted by ${event.pubkey.substring( 0, 20 ) + "..."} ${convertHMS(now - event.created_at)}`;
+            div.getElementsByClassName("post_title")[0].innerText = extractSubjectFromEvent(event);
+            div.getElementsByClassName("post_content")[0].innerText = event.content;
+            if ( $( '.comments_counter' ) ) {
+						$( '.how_many_comments' ).innerText = Number( $( '.how_many_comments' ).innerText ) + 1;
+						var now = Math.floor( Date.now() / 1000 );
+						var comment_div = document.createElement( "div" );
+						comment_div.innerHTML = `
+							<div class="post_content"></div>
+							<div class="metadata"></div>
+							<hr>
+						`;
+						comment_div.getElementsByClassName( "metadata" )[ 0 ].innerText = `Posted by ${event.pubkey.substring( 0, 20 ) + "..."} ${convertHMS( now - event.created_at)}`;
+						comment_div.getElementsByClassName( "post_content" )[ 0 ].innerText = event.content;
+						$( '.entries' ).append( comment_div );
+					} else {
+						$( '.entries' ).append( div );
+						var subId   = bitcoinjs.ECPair.makeRandom().privateKey.toString( "hex" ).substring( 0, 16 );
+						var filter  = { "kinds": [1], "#e": [ $_GET[ "post" ] ] }				
+						var subscription = [ "REQ", subId, filter ];
+						socket.send(JSON.stringify( subscription ));
+					}
+				} else {
+					var parent = extractParentOfReply( event );
+					$( `.count_${parent}` ).innerText = Number( $( `.count_${parent}` ).innerText ) + 1;
+				}
+			}
+		});
 
       socket.addEventListener("open", async function (e) {
         console.log("connected to " + relay);
-        var subId = bitcoinjs.ECPair.makeRandom()
-          .privateKey.toString("hex")
-          .substring(0, 16);
+        var subId = bitcoinjs.ECPair.makeRandom().privateKey.toString("hex").substring(0, 16);
         if (!$_GET["post"]) {
           var filter = { kinds: [1], limit: 1000 };
         } else {
@@ -293,7 +317,7 @@
                 </div>
     
                 <!-- thumbnail -->
-                <a href="#" class="thumbnail ${link_or_text}"></a>
+                <a href="${url}" class="thumbnail ${link_or_text}"></a>
     
                 <!-- topic -->
                 <div class="topic">
@@ -306,7 +330,7 @@
                   </div>
     
                   <div class="details">
-                    <a href="#" class="btn-expand ${link_or_text}"></a>
+                    <a href="${url}" class="btn-expand ${link_or_text}"></a>
     
                     <div class="inner-details">
                       <div class="submit-detail">
